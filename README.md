@@ -1,7 +1,9 @@
+# Install
+does not require C++ bindings, as it uses the default C ones. Compatible with OpenMPI5.
+Currently under testing
+
 Geant4 MPI Interface
 ====================
-
-REQUIRES OPENMPI compiled with --enable-mpi-cxx
 
 Author:
 Koichi Murakami (KEK) / Koichi.Murakami@kek.jp
