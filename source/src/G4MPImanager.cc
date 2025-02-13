@@ -44,6 +44,7 @@
 #include <getopt.h>
 #include <stdio.h>
 #include <time.h>
+#include <vector>
 
 G4MPImanager* G4MPImanager::g4mpi_ = NULL;
 
@@ -264,43 +265,51 @@ void G4MPImanager::Initialize()
 // --------------------------------------------------------------------------
 void G4MPImanager::ParseArguments(int argc, char** argv)
 {
+  _options.clear();
   G4int qhelp = 0;
   G4String ofprefix = "mpi";
 
-  G4int c;
-  while (1) {
-    G4int option_index = 0;
-    static struct option long_options[] = {{"help", no_argument, NULL, 'h'},
-                                           {"verbose", no_argument, NULL, 'v'},
-                                           {"init", required_argument, NULL, 'i'},
-                                           {"ofile", optional_argument, NULL, 'o'},
-                                           {NULL, 0, NULL, 0}};
+  G4int optind = -1;
 
-    opterr = 0;  // suppress message
-    c = getopt_long(argc, argv, "hvi:o", long_options, &option_index);
-    opterr = 1;
+  static struct option long_options[] = {{"help", no_argument, NULL, 'h'}, {"verbose", no_argument, NULL, 'v'}, {"init", required_argument, NULL, 'i'}, {"ofile", optional_argument, NULL, 'o'}, {NULL, 0, NULL, 0}};
 
-    if (c == -1) break;
+  for (int i = 1; i < argc; i++)
+  {
+    G4String arg = argv[i];
 
-    switch (c) {
-      case 'h':
-        qhelp = 1;
-        break;
-      case 'v':
-        verbose_ = 1;
-        break;
-      case 'i':
-        qinitmacro_ = true;
-        init_file_name_ = optarg;
-        break;
-      case 'o':
-        qfcout_ = true;
-        if (optarg) ofprefix = optarg;
-        break;
-      default:
-        G4cerr << "*** invalid options specified." << G4endl;
-        std::exit(EXIT_FAILURE);
-        break;
+    if (arg == "help")
+    {
+      qhelp = 1;
+    }
+    else if (arg == "verbose")
+    {
+      verbose_ = 1;
+    }
+    else if (arg == "init")
+    {
+      qinitmacro_ = true;
+      init_file_name_ = optarg;
+    }
+    else if (arg == "ofile")
+    {
+      qfcout_ = true;
+      if (optarg) ofprefix = optarg;
+    }
+    else if (arg[0] == 'm')
+    {
+      G4String sub = arg.substr(0,5);
+      if (sub=="macro")
+      {
+        optind = i;
+        qbatchmode_ = true;
+      }
+    }
+    //default:
+      //G4cerr << "*** invalid options specified." << G4endl;
+      //std::exit(EXIT_FAILURE);
+    else
+    {
+      _options.push_back(arg);
     }
   }
 
@@ -321,10 +330,10 @@ void G4MPImanager::ParseArguments(int argc, char** argv)
   }
 
   // non-option ARGV-elements ...
-  if (optind < argc) {
-    qbatchmode_ = true;
+  if (qbatchmode_) {
     macro_file_name_ = argv[optind];
   }
+
 }
 
 // ====================================================================

@@ -34,6 +34,7 @@
 
 #include <fstream>
 #include <pthread.h>
+#include <vector>
 
 #define DISALLOW_COPY_AND_ASSIGN(TypeName) \
   TypeName(const TypeName&);               \
@@ -128,6 +129,9 @@ class G4MPImanager
     const MPI_Comm* GetCollectingComm() const { return &collecting_comm_; }
     const MPI_Comm* GetAllComm() const { return &all_comm_; }
 
+    std::vector<G4String> ReturnArguments() { return _options; }
+
+
   private:
     DISALLOW_COPY_AND_ASSIGN(G4MPImanager);
 
@@ -189,6 +193,8 @@ class G4MPImanager
     // parallel parameters
     G4double master_weight_;
     G4int nof_extra_workers_;
+
+    std::vector<G4String> _options;
 };
 
 // ====================================================================
