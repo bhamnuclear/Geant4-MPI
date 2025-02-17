@@ -1,14 +1,18 @@
 # Install
-does not require C++ bindings, as it uses the default C ones.
+does not require C++ bindings, as it uses the default C ones.<br>
 Compatible with OpenMPI 4 and 5.
 
-##**Working**
+## **Working**
 
 Tested on:
-  ArchLinux 6.12.13-1-lts + OpenMPI-5.0.6 + Geant4-11.2.1 and Geant4-11.3.0 - Laptop
-  Rhel8.10 4.18.0-553.el8_10.x86_64 + OpenMPI-4.1.4 + Geant4-11.2.1
+  ArchLinux 6.12.13-1-lts + OpenMPI-5.0.6 + Geant4-11.2.1 and Geant4-11.3.0 - Laptop<br>
+  Rhel8.10 4.18.0-553.el8_10.x86_64 + OpenMPI-4.1.4 + Geant4-11.2.1 - SLURM cluster
   
-Modified so that it is possible to pass command line arguments to the main program
+Modified so that it is possible to pass command line arguments to the main program.
+Can use multiple nodes and/or threads at a time. In general, if the nodes are unablanced (i.e. not the same number of threads per node), it is possible to set each thread as an independent node and single thread (default behavior).
+
+## TODO
+ - Automatic recognition of node structure to have multithreaded behavior on unbalanced nodes
 
 Geant4 MPI Interface
 ====================
