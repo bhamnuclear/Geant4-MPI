@@ -1,6 +1,14 @@
 # Install
-does not require C++ bindings, as it uses the default C ones. Compatible with OpenMPI5.
-Currently under testing
+does not require C++ bindings, as it uses the default C ones.
+Compatible with OpenMPI 4 and 5.
+
+##**Working**
+
+Tested on:
+  ArchLinux 6.12.13-1-lts + OpenMPI-5.0.6 + Geant4-11.2.1 and Geant4-11.3.0 - Laptop
+  Rhel8.10 4.18.0-553.el8_10.x86_64 + OpenMPI-4.1.4 + Geant4-11.2.1
+  
+Modified so that it is possible to pass command line arguments to the main program
 
 Geant4 MPI Interface
 ====================
