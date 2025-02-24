@@ -84,7 +84,7 @@ G4MPImanager::G4MPImanager(int nof_extra_workers)
     master_weight_(1.),
     nof_extra_workers_(nof_extra_workers)
 {
-  // MPI::Init();
+  int provided_;
   MPI_Init_thread(nullptr, nullptr, MPI_THREAD_SERIALIZED, &provided_);
   if (provided_ < MPI_THREAD_SERIALIZED) {
     std::cerr << "Warning: MPI does not provide the requested threading support!" << std::endl;
@@ -106,7 +106,7 @@ G4MPImanager::G4MPImanager(int argc, char** argv, int nof_extra_workers)
     master_weight_(1.),
     nof_extra_workers_(nof_extra_workers)
 {
-  int provided;
+  int provided_;
   MPI_Init_thread(nullptr, nullptr, MPI_THREAD_SERIALIZED, &provided_);
   if (provided_ < MPI_THREAD_SERIALIZED) {
     std::cerr << "Warning: MPI does not provide the requested threading support!" << std::endl;
@@ -181,14 +181,14 @@ void G4MPImanager::Initialize()
   g4mpi_ = this;
 
   // get rank information
-  MPI_Comm_size(MPI_COMM_WORLD, &world_size_);//world_size_ = MPI::COMM_WORLD.Get_size();
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size_);
   if (world_size_ - nof_extra_workers_ <= 0) {
     G4Exception("G4MPImanager::SetExtraWorker()", "MPI001", JustWarning,
                 "Cannot reserve extra ranks: the MPI size is not sufficient.");
     nof_extra_workers_ = 0;
   }
   size_ = world_size_ - nof_extra_workers_;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank_); //rank_ = MPI::COMM_WORLD.Get_rank();
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank_);
   is_master_ = (rank_ == kRANK_MASTER);
   is_slave_ = (rank_ != kRANK_MASTER);
   is_extra_worker_ = false;
@@ -277,6 +277,9 @@ void G4MPImanager::ParseArguments(int argc, char** argv)
   {
     G4String arg = argv[i];
 
+    G4String sub = arg.substr(0,5);
+    G4String endsub = arg.substr(arg.length()-4);
+    
     if (arg == "help")
     {
       qhelp = 1;
@@ -295,14 +298,10 @@ void G4MPImanager::ParseArguments(int argc, char** argv)
       qfcout_ = true;
       if (optarg) ofprefix = optarg;
     }
-    else if (arg[0] == 'm')
+    else if (sub=="macro" or endsub==".mac")
     {
-      G4String sub = arg.substr(0,5);
-      if (sub=="macro")
-      {
-        optind = i;
-        qbatchmode_ = true;
-      }
+      optind = i;
+      qbatchmode_ = true;
     }
     //default:
       //G4cerr << "*** invalid options specified." << G4endl;
