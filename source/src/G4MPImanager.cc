@@ -53,9 +53,11 @@ namespace
 {
 
 // wrappers for thread functions
-void thread_ExecuteThreadCommand(const G4String* command)
+void* thread_ExecuteThreadCommand(void* arg)
 {
+  const G4String* command = static_cast<const G4String*>(arg);
   G4MPImanager::GetManager()->ExecuteThreadCommand(*command);
+  return nullptr;
 }
 
 // --------------------------------------------------------------------------
@@ -87,8 +89,12 @@ G4MPImanager::G4MPImanager(int nof_extra_workers)
   int provided_;
   MPI_Init_thread(nullptr, nullptr, MPI_THREAD_SERIALIZED, &provided_);
   if (provided_ < MPI_THREAD_SERIALIZED) {
-    std::cerr << "Warning: MPI does not provide the requested threading support!" << std::endl;
+    G4Exception("G4MPImanager::G4MPImanager()",
+                "G4MPImanager001",
+                FatalException,
+                "MPI Initialization failed to setup with MPI_THREAD_SERIALIZED or better");
   }
+
   Initialize();
 }
 
@@ -109,7 +115,10 @@ G4MPImanager::G4MPImanager(int argc, char** argv, int nof_extra_workers)
   int provided_;
   MPI_Init_thread(nullptr, nullptr, MPI_THREAD_SERIALIZED, &provided_);
   if (provided_ < MPI_THREAD_SERIALIZED) {
-    std::cerr << "Warning: MPI does not provide the requested threading support!" << std::endl;
+    G4Exception("G4MPImanager::G4MPImanager()",
+                "G4MPImanager001",
+                FatalException,
+                "MPI Initialization failed to setup with MPI_THREAD_SERIALIZED or better");
   }
 
   Initialize();
@@ -271,15 +280,17 @@ void G4MPImanager::ParseArguments(int argc, char** argv)
 
   G4int optind = -1;
 
-  static struct option long_options[] = {{"help", no_argument, NULL, 'h'}, {"verbose", no_argument, NULL, 'v'}, {"init", required_argument, NULL, 'i'}, {"ofile", optional_argument, NULL, 'o'}, {NULL, 0, NULL, 0}};
-
   for (int i = 1; i < argc; i++)
   {
     G4String arg = argv[i];
+    G4String sub;
+    G4String endsub = sub;
+    if (arg.length() > 5)
+    {
+      sub = arg.substr(0,5);
+      endsub = arg.substr(arg.length()-4);
+    }
 
-    G4String sub = arg.substr(0,5);
-    G4String endsub = arg.substr(arg.length()-4);
-    
     if (arg == "help")
     {
       qhelp = 1;
@@ -527,7 +538,7 @@ void G4MPImanager::ExecuteBeamOnThread(const G4String& command)
   else {  // ok
     static G4String cmdstr;
     cmdstr = command;
-    G4int rc = pthread_create(&thread_id_, 0, (Func_t)thread_ExecuteThreadCommand, (void*)&cmdstr);
+    G4int rc = pthread_create(&thread_id_, 0, thread_ExecuteThreadCommand, (void*)&cmdstr);
     if (rc != 0)
       G4Exception("G4MPImanager::ExecuteBeamOnThread()", "MPI003", FatalException,
                   "Failed to create a beamOn thread.");
