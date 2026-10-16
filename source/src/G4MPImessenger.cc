@@ -100,6 +100,11 @@ G4MPImessenger::G4MPImessenger() : G4UImessenger()
   show_seeds_ = new G4UIcmdWithoutParameter("/mpi/showSeeds", this);
   show_seeds_->SetGuidance("Show seeds of MPI nodes.");
 
+  // /mpi/showThreads
+  show_threads_ = new G4UIcmdWithoutParameter("/mpi/showThreads", this);
+  show_threads_->SetGuidance("Show host and number of threads of MPI nodes.");
+  show_threads_->SetGuidance("Events of a run are divided in proportion to the threads.");
+
   // /mpi/setMasterSeed
   set_master_seed_ = new G4UIcmdWithAnInteger("/mpi/setMasterSeed", this);
   set_master_seed_->SetGuidance("Set a master seed for the seed generator.");
@@ -127,6 +132,7 @@ G4MPImessenger::~G4MPImessenger()
   delete dot_beam_on_;
   delete master_weight_;
   delete show_seeds_;
+  delete show_threads_;
   delete set_master_seed_;
   delete set_seed_;
 
@@ -167,6 +173,9 @@ void G4MPImessenger::SetNewValue(G4UIcommand* command, G4String newValue)
   }
   else if (command == show_seeds_) {  // /mpi/showSeeds
     g4mpi_->ShowSeeds();
+  }
+  else if (command == show_threads_) {  // /mpi/showThreads
+    g4mpi_->ShowThreads();
   }
   else if (command == set_master_seed_) {  // /mpi/setMasterSeed
     std::istringstream is(newValue);

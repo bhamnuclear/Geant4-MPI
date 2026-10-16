@@ -42,8 +42,18 @@
 #include "G4UImanager.hh"
 
 #include <getopt.h>
+#include <sched.h>
 #include <stdio.h>
 #include <time.h>
+
+#include <algorithm>
+#include <cstdlib>
+#include <cstring>
+#include <iomanip>
+#include <map>
+#include <numeric>
+#include <sstream>
+#include <thread>
 #include <vector>
 
 G4MPImanager* G4MPImanager::g4mpi_ = NULL;
@@ -70,6 +80,119 @@ void Wait(G4int ausec)
   nanosleep(&treq, &trem);
 }
 
+// --------------------------------------------------------------------------
+// split a Slurm list at the commas outside brackets
+std::vector<G4String> SplitSlurmList(const G4String& list)
+{
+  std::vector<G4String> items;
+  G4String item;
+  G4int depth = 0;
+  for (char c : list) {
+    if (c == '[') depth++;
+    if (c == ']') depth--;
+    if (c == ',' && depth == 0) {
+      items.push_back(item);
+      item.clear();
+    }
+    else {
+      item += c;
+    }
+  }
+  if (!item.empty()) items.push_back(item);
+  return items;
+}
+
+// --------------------------------------------------------------------------
+// expand a Slurm hostlist, e.g. "node[01-02,07],gpu1" gives
+// node01 node02 node07 gpu1
+std::vector<G4String> ExpandSlurmHostlist(const G4String& hostlist)
+{
+  std::vector<G4String> hosts;
+  for (const auto& item : SplitSlurmList(hostlist)) {
+    std::size_t open = item.find('[');
+    std::size_t close = item.find(']', open);
+    if (open == std::string::npos || close == std::string::npos) {
+      hosts.push_back(item);
+      continue;
+    }
+    G4String prefix = item.substr(0, open);
+    G4String suffix = item.substr(close + 1);
+    for (const auto& range : SplitSlurmList(item.substr(open + 1, close - open - 1))) {
+      std::size_t dash = range.find('-');
+      G4String first = range.substr(0, dash);
+      long lo = std::stol(first);
+      long hi = (dash == std::string::npos) ? lo : std::stol(range.substr(dash + 1));
+      for (long i = lo; i <= hi; i++) {
+        std::ostringstream host;
+        host << prefix << std::setw(first.size()) << std::setfill('0') << i << suffix;
+        // the suffix may hold further brackets
+        for (const auto& h : ExpandSlurmHostlist(host.str()))
+          hosts.push_back(h);
+      }
+    }
+  }
+  return hosts;
+}
+
+// --------------------------------------------------------------------------
+// expand a Slurm count list, e.g. "20(x3),10" gives 20 20 20 10
+std::vector<G4int> ExpandSlurmCounts(const G4String& counts)
+{
+  std::vector<G4int> values;
+  for (const auto& item : SplitSlurmList(counts)) {
+    std::size_t rep = item.find("(x");
+    G4int value = std::stoi(item.substr(0, rep));
+    G4int times = (rep == std::string::npos) ? 1 : std::stoi(item.substr(rep + 2));
+    values.insert(values.end(), times, value);
+  }
+  return values;
+}
+
+// --------------------------------------------------------------------------
+// CPUs allocated to the job on each of its nodes. Only job-level variables
+// are read: srun overwrites SLURM_NODELIST and SLURM_TASKS_PER_NODE with
+// the values of the step, e.g. of the daemons started by mpirun.
+std::map<G4String, G4int> GetSlurmNodeCpus(G4String& error)
+{
+  auto env = [](const char* name) {
+    const char* value = std::getenv(name);
+    return G4String(value != nullptr ? value : "");
+  };
+
+  G4String nodelist = env("SLURM_JOB_NODELIST");
+  G4String cpus = env("SLURM_JOB_CPUS_PER_NODE");
+  G4int cpus_per_task = 1;
+  if (cpus.empty()) {
+    cpus = env("SLURM_TASKS_PER_NODE");
+    if (!env("SLURM_CPUS_PER_TASK").empty()) cpus_per_task = std::atoi(env("SLURM_CPUS_PER_TASK"));
+  }
+  if (nodelist.empty() || cpus.empty()) {
+    error = "SLURM_JOB_NODELIST or SLURM_JOB_CPUS_PER_NODE is not set";
+    return {};
+  }
+
+  std::vector<G4String> hosts;
+  std::vector<G4int> counts;
+  try {
+    hosts = ExpandSlurmHostlist(nodelist);
+    counts = ExpandSlurmCounts(cpus);
+  }
+  catch (const std::exception&) {
+    error = "cannot parse nodes \"" + nodelist + "\" with CPUs \"" + cpus + "\"";
+    return {};
+  }
+  if (hosts.size() != counts.size()) {
+    error = "nodes \"" + nodelist + "\" do not match CPUs \"" + cpus + "\"";
+    return {};
+  }
+
+  std::map<G4String, G4int> node_cpus;
+  for (std::size_t i = 0; i < hosts.size(); i++) {
+    node_cpus[hosts[i]] = counts[i] * std::max(cpus_per_task, 1);
+  }
+  return node_cpus;
+}
+
 }  // end of namespace
 
 // --------------------------------------------------------------------------
@@ -81,10 +204,12 @@ G4MPImanager::G4MPImanager(int nof_extra_workers)
     all_comm_(MPI_COMM_NULL),
     qfcout_(false),
     qinitmacro_(false),
+    qforcethreads_(false),
     qbatchmode_(false),
     thread_id_(0),
     master_weight_(1.),
-    nof_extra_workers_(nof_extra_workers)
+    nof_extra_workers_(nof_extra_workers),
+    nof_threads_(1)
 {
   int provided_;
   MPI_Init_thread(nullptr, nullptr, MPI_THREAD_SERIALIZED, &provided_);
@@ -96,6 +221,7 @@ G4MPImanager::G4MPImanager(int nof_extra_workers)
   }
 
   Initialize();
+  DetectThreads();
 }
 
 // --------------------------------------------------------------------------
@@ -107,10 +233,12 @@ G4MPImanager::G4MPImanager(int argc, char** argv, int nof_extra_workers)
     all_comm_(MPI_COMM_NULL),
     qfcout_(false),
     qinitmacro_(false),
+    qforcethreads_(false),
     qbatchmode_(false),
     thread_id_(0),
     master_weight_(1.),
-    nof_extra_workers_(nof_extra_workers)
+    nof_extra_workers_(nof_extra_workers),
+    nof_threads_(1)
 {
   int provided_;
   MPI_Init_thread(nullptr, nullptr, MPI_THREAD_SERIALIZED, &provided_);
@@ -123,6 +251,13 @@ G4MPImanager::G4MPImanager(int argc, char** argv, int nof_extra_workers)
 
   Initialize();
   ParseArguments(argc, argv);
+  DetectThreads();
+
+  // the run manager, created after this, reads it in its constructor and
+  // ignores SetNumberOfThreads()
+  if (qforcethreads_) {
+    setenv("G4FORCENUMBEROFTHREADS", std::to_string(nof_threads_).c_str(), 1);
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -272,6 +407,158 @@ void G4MPImanager::Initialize()
 }
 
 // --------------------------------------------------------------------------
+void G4MPImanager::DetectThreads()
+{
+  // CPUs this process may run on, as restricted by cgroups or by the
+  // binding of the MPI launcher
+  G4int affinity_cpus = 0;
+#ifdef CPU_COUNT
+  cpu_set_t mask;
+  CPU_ZERO(&mask);
+  if (sched_getaffinity(0, sizeof(mask), &mask) == 0) affinity_cpus = CPU_COUNT(&mask);
+#endif
+  if (affinity_cpus <= 0) affinity_cpus = std::max(1u, std::thread::hardware_concurrency());
+
+  // CPUs allocated to the job on this node: Slurm tells, otherwise assume
+  // the ranks on this node share the affinity mask of this process
+  G4int node_cpus = affinity_cpus;
+  const char* slurm_cpus = std::getenv("SLURM_CPUS_ON_NODE");
+  if (slurm_cpus != nullptr && std::atoi(slurm_cpus) > 0) node_cpus = std::atoi(slurm_cpus);
+
+  // ranks on this node, split between processing ranks and extra workers
+  MPI_Comm node_comm, node_group_comm;
+  G4int node_size, local_rank, local_size;
+  MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, rank_, MPI_INFO_NULL, &node_comm);
+  MPI_Comm_size(node_comm, &node_size);
+  MPI_Comm_split(node_comm, is_extra_worker_, rank_, &node_group_comm);
+  MPI_Comm_rank(node_group_comm, &local_rank);
+  MPI_Comm_size(node_group_comm, &local_size);
+  MPI_Comm_free(&node_group_comm);
+  MPI_Comm_free(&node_comm);
+
+  // extra workers only collect data: one CPU each; processing ranks share
+  // what the extra workers leave, the first ones taking the remainder
+  if (!is_extra_worker_) {
+    G4int free_cpus = std::max(node_cpus - (node_size - local_size), 1);
+    nof_threads_ = free_cpus / local_size + (local_rank < free_cpus % local_size ? 1 : 0);
+    nof_threads_ = std::max(nof_threads_, 1);
+  }
+
+  // the allocation of the scheduler replaces the guess above
+  if (scheduler_ == "slurm") ApplySlurmAllocation();
+
+  if (is_extra_worker_) return;
+
+  if (nof_threads_ > affinity_cpus) {
+    G4ExceptionDescription msg;
+    msg << "rank " << rank_ << " has " << nof_threads_ << " CPUs allocated on its node,"
+        << " but can run on " << affinity_cpus << " (CPU affinity): using " << affinity_cpus
+        << " threads. If the MPI launcher binds ranks to cores, disable it"
+        << " (srun --cpu-bind=none, mpirun --bind-to none).";
+    G4Exception("G4MPImanager::DetectThreads()", "MPI005", JustWarning, msg);
+    nof_threads_ = affinity_cpus;
+  }
+
+  rank_threads_.assign(size_, 1);
+  MPI_Allgather(&nof_threads_, 1, MPI_INT, rank_threads_.data(), 1, MPI_INT, COMM_G4COMMAND_);
+}
+
+// --------------------------------------------------------------------------
+void G4MPImanager::ApplySlurmAllocation()
+{
+  // node of this rank, as Slurm names it
+  char node[MPI_MAX_PROCESSOR_NAME] = {0};
+  const char* slurmd_node = std::getenv("SLURMD_NODENAME");
+  if (slurmd_node != nullptr) {
+    std::strncpy(node, slurmd_node, MPI_MAX_PROCESSOR_NAME - 1);
+  }
+  else {
+    G4int len;
+    MPI_Get_processor_name(node, &len);
+  }
+  char* domain = std::strchr(node, '.');
+  if (domain != nullptr) *domain = '\0';
+
+  // only the master reads the environment: under mpirun the other ranks
+  // may see the environment of the step of the MPI daemons
+  G4int extra = is_extra_worker_;
+  std::vector<char> nodes(is_master_ ? world_size_ * MPI_MAX_PROCESSOR_NAME : 0);
+  std::vector<G4int> extras(is_master_ ? world_size_ : 0);
+  MPI_Gather(node, MPI_MAX_PROCESSOR_NAME, MPI_CHAR, nodes.data(), MPI_MAX_PROCESSOR_NAME,
+             MPI_CHAR, kRANK_MASTER, MPI_COMM_WORLD);
+  MPI_Gather(&extra, 1, MPI_INT, extras.data(), 1, MPI_INT, kRANK_MASTER, MPI_COMM_WORLD);
+
+  // threads of each rank, 0 keeps the guess of the rank
+  std::vector<G4int> threads(is_master_ ? world_size_ : 0, 0);
+
+  if (is_master_) {
+    G4String error;
+    std::map<G4String, G4int> node_cpus = GetSlurmNodeCpus(error);
+    if (!error.empty()) {
+      G4ExceptionDescription msg;
+      msg << "cannot use the Slurm allocation: " << error << "."
+          << " Threads are guessed from each node.";
+      G4Exception("G4MPImanager::ApplySlurmAllocation()", "MPI006", JustWarning, msg);
+    }
+    else {
+      std::map<G4String, std::vector<G4int>> node_ranks;
+      for (G4int i = 0; i < world_size_; i++) {
+        node_ranks[G4String(&nodes[i * MPI_MAX_PROCESSOR_NAME])].push_back(i);
+      }
+
+      for (const auto& [name, ranks] : node_ranks) {
+        auto cpus = node_cpus.find(name);
+        if (cpus == node_cpus.end()) {
+          G4ExceptionDescription msg;
+          msg << "node " << name << " of " << ranks.size() << " rank(s) is not in"
+              << " the Slurm allocation: threads are guessed from the node.";
+          G4Exception("G4MPImanager::ApplySlurmAllocation()", "MPI006", JustWarning, msg);
+          continue;
+        }
+
+        // extra workers take one CPU each, processing ranks share the rest
+        G4int nextra = 0;
+        for (G4int r : ranks)
+          nextra += extras[r];
+        G4int nproc = G4int(ranks.size()) - nextra;
+        if (nproc == 0) continue;
+        G4int free_cpus = std::max(cpus->second - nextra, 1);
+        G4int iproc = 0;
+        for (G4int r : ranks) {
+          if (extras[r]) continue;
+          threads[r] = std::max(free_cpus / nproc + (iproc < free_cpus % nproc ? 1 : 0), 1);
+          iproc++;
+        }
+
+        if (verbose_ > 0) {
+          G4cout << "* node= " << name << " cpus= " << cpus->second << " ranks=";
+          for (G4int r : ranks)
+            G4cout << " " << r;
+          G4cout << G4endl;
+        }
+      }
+
+      // CPUs allocated on nodes where no rank runs are lost
+      G4ExceptionDescription unused;
+      for (const auto& [name, cpus] : node_cpus) {
+        if (node_ranks.count(name) == 0) unused << " " << name << " (" << cpus << " CPUs)";
+      }
+      if (!unused.str().empty()) {
+        G4ExceptionDescription msg;
+        msg << "no rank runs on the allocated nodes" << unused.str() << "."
+            << " Start one rank per node (mpirun -n $SLURM_NNODES --map-by node,"
+            << " srun --ntasks-per-node=1).";
+        G4Exception("G4MPImanager::ApplySlurmAllocation()", "MPI006", JustWarning, msg);
+      }
+    }
+  }
+
+  G4int nthreads;
+  MPI_Scatter(threads.data(), 1, MPI_INT, &nthreads, 1, MPI_INT, kRANK_MASTER, MPI_COMM_WORLD);
+  if (nthreads > 0) nof_threads_ = nthreads;
+}
+
+// --------------------------------------------------------------------------
 void G4MPImanager::ParseArguments(int argc, char** argv)
 {
   _options.clear();
@@ -309,6 +596,14 @@ void G4MPImanager::ParseArguments(int argc, char** argv)
       qfcout_ = true;
       if (optarg) ofprefix = optarg;
     }
+    else if (arg == "--force-threads")
+    {
+      qforcethreads_ = true;
+    }
+    else if (arg.rfind("--scheduler=", 0) == 0)
+    {
+      scheduler_ = arg.substr(12);
+    }
     else if (sub=="macro" or endsub==".mac")
     {
       optind = i;
@@ -321,6 +616,15 @@ void G4MPImanager::ParseArguments(int argc, char** argv)
     {
       _options.push_back(arg);
     }
+  }
+
+  if (!scheduler_.empty() && scheduler_ != "slurm") {
+    if (is_master_) {
+      G4ExceptionDescription msg;
+      msg << "unknown scheduler \"" << scheduler_ << "\": threads are guessed from each node.";
+      G4Exception("G4MPImanager::ParseArguments()", "MPI006", JustWarning, msg);
+    }
+    scheduler_.clear();
   }
 
   // show help
@@ -450,11 +754,48 @@ void G4MPImanager::ShowSeeds()
 }
 
 // --------------------------------------------------------------------------
+void G4MPImanager::ShowThreads()
+{
+  char host[MPI_MAX_PROCESSOR_NAME] = {0};
+  G4int len;
+  MPI_Get_processor_name(host, &len);
+
+  if (is_master_) {
+    // print master
+    G4cout << "* rank= " << rank_ << " host= " << host << " threads= " << rank_threads_[rank_]
+           << G4endl;
+    // receive from each slave
+    for (G4int islave = 1; islave < size_; islave++) {
+      MPI_Recv(host, MPI_MAX_PROCESSOR_NAME, MPI_CHAR, islave, kTAG_G4THREADS, COMM_G4COMMAND_,
+               MPI_STATUS_IGNORE);
+      G4cout << "* rank= " << islave << " host= " << host << " threads= " << rank_threads_[islave]
+             << G4endl;
+    }
+  }
+  else {  // slaves
+    MPI_Send(host, MPI_MAX_PROCESSOR_NAME, MPI_CHAR, kRANK_MASTER, kTAG_G4THREADS, COMM_G4COMMAND_);
+  }
+}
+
+// --------------------------------------------------------------------------
 void G4MPImanager::SetSeed(G4int inode, G4long seed)
 {
   if (rank_ == inode) {
     CLHEP::HepRandom::setTheSeed(seed);
   }
+}
+
+// --------------------------------------------------------------------------
+void G4MPImanager::SyncThreadCounts()
+{
+  // Do nothing if not processing worker
+  if (is_extra_worker_) return;
+
+  // the run manager may run other than GetAvailableThreads() threads,
+  // set by the application or /run/numberOfThreads
+  G4RunManager* runManager = G4RunManager::GetRunManager();
+  G4int nthreads = (runManager != nullptr) ? runManager->GetNumberOfThreads() : 1;
+  MPI_Allgather(&nthreads, 1, MPI_INT, rank_threads_.data(), 1, MPI_INT, COMM_G4COMMAND_);
 }
 
 // ====================================================================
@@ -536,6 +877,9 @@ void G4MPImanager::ExecuteBeamOnThread(const G4String& command)
     }
   }
   else {  // ok
+    // no beamOn thread is running anywhere: safe to communicate
+    SyncThreadCounts();
+
     static G4String cmdstr;
     cmdstr = command;
     G4int rc = pthread_create(&thread_id_, 0, thread_ExecuteThreadCommand, (void*)&cmdstr);
@@ -615,38 +959,46 @@ void G4MPImanager::BeamOn(G4int nevent, G4bool qdivide)
   G4RunManager* runManager = G4RunManager::GetRunManager();
 #endif
 
-  if (qdivide) {  // events are divided
-    G4double ntot = master_weight_ + size_ - 1.;
-    G4int nproc = G4int(nevent / ntot);
-    G4int nproc0 = nevent - nproc * (size_ - 1);
-    fevents_in_master = nproc0;
-    fevents_in_slave = nproc;
+  if (qdivide) {  // events are divided in proportion to the threads of each rank
+    std::vector<G4double> weight(rank_threads_.begin(), rank_threads_.end());
+    weight[kRANK_MASTER] *= master_weight_;
+    G4double wtot = std::accumulate(weight.begin(), weight.end(), 0.);
+
+    // the master takes the rounding remainder
+    rank_events_.assign(size_, 0);
+    for (G4int i = 1; i < size_; i++) {
+      if (wtot > 0.) rank_events_[i] = G4int(nevent * weight[i] / wtot);
+    }
+    rank_events_[kRANK_MASTER] =
+      nevent - std::accumulate(rank_events_.begin() + 1, rank_events_.end(), 0);
+
+    fevents_in_master = rank_events_[kRANK_MASTER];
+    fevents_in_slave = rank_events_[is_slave_ ? rank_ : std::min(1, size_ - 1)];
 
     if (verbose_ > 0 && is_master_) {
-      G4cout << "#events in master=" << nproc0 << " / "
-             << "#events in slave=" << nproc << G4endl;
+      for (G4int i = 0; i < size_; i++) {
+        G4cout << "* rank= " << i << " threads= " << rank_threads_[i]
+               << " #events= " << rank_events_[i] << G4endl;
+      }
     }
 
     status_->StartTimer();  // start timer
 
 #ifdef G4MULTITHREADED
-    G4String str_nevt;
-    if (is_master_)
-      str_nevt = G4UIcommand::ConvertToString(nproc0);
-    else
-      str_nevt = G4UIcommand::ConvertToString(nproc);
+    G4String str_nevt = G4UIcommand::ConvertToString(rank_events_[rank_]);
     G4UImanager* UI = G4UImanager::GetUIpointer();
     UI->ApplyCommand("/run/beamOn " + str_nevt);
 #else
-    if (is_master_)
-      runManager->BeamOn(nproc0);
-    else
-      runManager->BeamOn(nproc);
+    runManager->BeamOn(rank_events_[rank_]);
 #endif
 
     status_->StopTimer();  // stop timer
   }
   else {  // same events are generated in each node (for test use)
+    rank_events_.assign(size_, nevent);
+    fevents_in_master = nevent;
+    fevents_in_slave = nevent;
+
     if (verbose_ > 0 && is_master_) {
       G4cout << "#events in master=" << nevent << " / "
              << "#events in slave=" << nevent << G4endl;
@@ -734,5 +1086,7 @@ void G4MPImanager::ShowHelp() const
   G4cout << "   -v, --verbose           show verbose message" << G4endl;
   G4cout << "   -i, --init=FNAME        set an init macro file" << G4endl;
   G4cout << "   -o, --ofile[=FNAME]     set slave output to a flie" << G4endl;
+  G4cout << "   --scheduler=slurm       set threads per rank from the Slurm allocation" << G4endl;
+  G4cout << "   --force-threads         force the run manager to the threads of the rank" << G4endl;
   G4cout << G4endl;
 }

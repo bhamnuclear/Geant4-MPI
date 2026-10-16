@@ -9,10 +9,65 @@ Tested on:
   Rhel8.10 4.18.0-553.el8_10.x86_64 + OpenMPI-4.1.4 + Geant4-11.2.1 - SLURM cluster
   
 Modified so that it is possible to pass command line arguments to the main program.
-Can use multiple nodes and/or threads at a time. In general, if the nodes are unablanced (i.e. not the same number of threads per node), it is possible to set each thread as an independent node and single thread (default behavior).
+Can use multiple nodes and/or threads at a time, also on unbalanced nodes
+(i.e. not the same number of CPUs allocated on each node).
 
-## TODO
- - Automatic recognition of node structure to have multithreaded behavior on unbalanced nodes
+## Threads per rank on unbalanced nodes
+
+`G4MPImanager` works out how many threads each rank can use from the CPUs
+the scheduler allocated on its node (`SLURM_CPUS_ON_NODE`, or the CPU
+affinity of the process outside Slurm), shared among the ranks running on
+that node. Pass it to the run manager:
+
+```c++
+G4MPImanager* g4MPI = new G4MPImanager(argc, argv);
+...
+runManager->SetNumberOfThreads(g4MPI->GetAvailableThreads());
+```
+
+Events of a run are then divided in proportion to the threads each rank
+actually runs (as reported by the run manager when the run starts), so a
+node with 20 CPUs receives twice the events of a node with 10.
+`/mpi/showThreads` prints the host and threads of each rank.
+
+To run one multithreaded rank per node, start one rank per node, do not
+bind it to a single core, and pass `--scheduler=slurm`:
+
+    #SBATCH --ntasks=100           # CPUs, however Slurm spreads them on nodes
+    #SBATCH --nodes=2-10
+    mpirun -n $SLURM_NNODES --map-by node --bind-to none \
+      <your application> --scheduler=slurm run.mac
+    # or
+    srun --ntasks-per-node=1 --cpu-bind=none \
+      <your application> --scheduler=slurm run.mac
+
+With `--scheduler=slurm` the master expands the job allocation,
+`SLURM_JOB_NODELIST` with `SLURM_JOB_CPUS_PER_NODE` (or
+`SLURM_TASKS_PER_NODE` times `SLURM_CPUS_PER_TASK`), e.g.
+`node[01-03],gpu1` with `20(x3),8`, and gives each rank the CPUs of its
+node (`SLURMD_NODENAME`, or the host name), shared among the ranks running
+there. The job-level variables are used because `srun`, also when started
+by `mpirun` for its daemons, overwrites `SLURM_NODELIST` and
+`SLURM_TASKS_PER_NODE` with those of the step. A warning (`MPI006`) is
+issued for allocated nodes on which no rank runs and for ranks on nodes
+outside the allocation; without the option, or if the allocation cannot be
+read, each rank guesses from its own node (`SLURM_CPUS_ON_NODE`).
+Running `<your application> verbose --scheduler=slurm` prints the nodes,
+their CPUs and their ranks.
+
+Applications that set their own number of threads can be left unchanged
+with `--force-threads`: `G4MPImanager` then sets `G4FORCENUMBEROFTHREADS`
+to the threads of the rank, which the run manager (MT or tasking) created
+after it reads in its constructor, ignoring `SetNumberOfThreads()`.
+`GetNumberOfThreads()` of the run manager returns the forced value.
+
+    mpirun -n $SLURM_NNODES --map-by node --bind-to none \
+      <your application> --scheduler=slurm --force-threads run.mac
+
+Starting one rank per CPU (`mpirun -n $SLURM_NTASKS`) still works: each
+rank then gets a single thread, as before. If a rank is bound to fewer CPUs
+than allocated on its node, it uses only the CPUs it is bound to and warns
+(`MPI005`).
 
 Geant4 MPI Interface
 ====================
@@ -175,6 +230,7 @@ MPI control commands
    .beamOn *        Start a parallel run w/o thread.
    masterWeight *   Set weight for master node.
    showSeeds *      Show seeds of MPI nodes.
+   showThreads *    Show host and number of threads of MPI nodes.
    setMasterSeed *  Set a master seed for the seed generator.
    setSeed *        Set a seed for a specified node.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

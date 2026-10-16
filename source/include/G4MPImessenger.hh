@@ -71,6 +71,7 @@ class G4MPImessenger : public G4UImessenger
     G4UIcmdWithADouble* master_weight_;
 
     G4UIcmdWithoutParameter* show_seeds_;
+    G4UIcmdWithoutParameter* show_threads_;
     G4UIcmdWithAnInteger* set_master_seed_;
     G4UIcommand* set_seed_;
 };

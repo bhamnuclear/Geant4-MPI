@@ -65,7 +65,7 @@ int main(int argc, char** argv)
   // --------------------------------------------------------------------
 #ifdef G4MULTITHREADED_DISABLE  // ROOT ISSUES WITH MT, SEE exMPI03 FOR A MT
   G4MTRunManager* runManager = new G4MTRunManager();
-  runManager->SetNumberOfThreads(4);
+  runManager->SetNumberOfThreads(g4MPI->GetAvailableThreads());
 #else
   G4RunManager* runManager = new G4RunManager();
 #endif

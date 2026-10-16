@@ -60,6 +60,7 @@ class G4MPImanager
       kTAG_G4COMMAND = 100,
       kTAG_G4STATUS = 200,
       kTAG_G4SEED = 300,
+      kTAG_G4THREADS = 400,
       kTAG_DATA = 1000,
       kTAG_HISTO = 1001,
       kTAG_RUN = 1002,
@@ -101,11 +102,19 @@ class G4MPImanager
 
     G4VMPIseedGenerator* GetSeedGenerator() const;
 
+    // threads this rank can use, from the CPUs the scheduler allocated
+    // on its node, shared among the ranks running there
+    G4int GetAvailableThreads() const;
+    // threads of a rank, as last synchronised (used to weight events)
+    G4int GetThreadsInRank(G4int irank) const;
+
     // MPI methods
     G4String BcastCommand(const G4String& command);
     void ShowStatus();
     void ShowSeeds();
+    void ShowThreads();
     void SetSeed(G4int inode, G4long seed);
+    void SyncThreadCounts();
     void WaitBeamOn();
 
     // methods for MPI environment
@@ -119,7 +128,10 @@ class G4MPImanager
     void BeamOn(G4int nevent, G4bool qdivide = true);
     void Print(const G4String& message);
     G4int GetEventsInMaster() const { return fevents_in_master; }
+    // events of this rank in a slave, of rank 1 in the master: slaves
+    // with different numbers of threads get different numbers of events
     G4int GetEventsInSlave() const { return fevents_in_slave; }
+    G4int GetEventsInRank(G4int irank) const { return rank_events_.at(irank); }
 
     // misc
     void ShowHelp() const;
@@ -139,6 +151,8 @@ class G4MPImanager
     void Initialize();
     void ParseArguments(G4int argc, char** argv);
     void UpdateStatus();
+    void DetectThreads();
+    void ApplySlurmAllocation();
 
     static G4MPImanager* g4mpi_;
     G4MPImessenger* messenger_;
@@ -180,6 +194,7 @@ class G4MPImanager
 
     // init/macro file
     G4bool qinitmacro_;
+    G4bool qforcethreads_;  // set G4FORCENUMBEROFTHREADS
     G4String init_file_name_;
     G4bool qbatchmode_;
     G4String macro_file_name_;
@@ -192,6 +207,10 @@ class G4MPImanager
     // parallel parameters
     G4double master_weight_;
     G4int nof_extra_workers_;
+    G4String scheduler_;  // scheduler whose allocation sets the threads
+    G4int nof_threads_;  // threads available to this rank
+    std::vector<G4int> rank_threads_;  // threads of each processing rank
+    std::vector<G4int> rank_events_;  // events of each processing rank
 
     std::vector<G4String> _options;
 };
@@ -288,6 +307,16 @@ inline G4VMPIextraWorker* G4MPImanager::GetExtraWorker() const
 inline G4VMPIseedGenerator* G4MPImanager::GetSeedGenerator() const
 {
   return seed_generator_;
+}
+
+inline G4int G4MPImanager::GetAvailableThreads() const
+{
+  return nof_threads_;
+}
+
+inline G4int G4MPImanager::GetThreadsInRank(G4int irank) const
+{
+  return rank_threads_.at(irank);
 }
 
 #endif

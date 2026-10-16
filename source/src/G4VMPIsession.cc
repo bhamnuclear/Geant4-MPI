@@ -92,6 +92,7 @@ G4int G4VMPIsession::ExecCommand(const G4String& acommand)
       returnVal = fCommandSucceeded;
     }
     else {
+      g4mpi_->SyncThreadCounts();
       returnVal = UI->ApplyCommand(command);
     }
   }

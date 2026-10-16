@@ -4,6 +4,17 @@ See `CONTRIBUTING.rst` for details of **required** info/format for each entry,
 which **must** added in reverse chronological order (newest at the top). It must **not**
 be used as a substitute for writing good git commit messages!
 
+## 2026-10-14 Filippo Falezza (MPI-V11-03-01)
+- Detect the threads available to each rank from the node allocation
+  (SLURM_CPUS_ON_NODE or CPU affinity), G4MPImanager::GetAvailableThreads()
+- Added --scheduler=slurm option: threads per rank from the job allocation
+  (SLURM_JOB_NODELIST, SLURM_JOB_CPUS_PER_NODE)
+- Added --force-threads option: set G4FORCENUMBEROFTHREADS to the threads
+  of the rank, overriding SetNumberOfThreads() of the application
+- Divide events among ranks in proportion to their number of threads
+- Added /mpi/showThreads command
+- Examples use the detected number of threads instead of 4
+
 ## 2025-02-24 Filippo Falezza (MPI-V11-03-00)
 - Rewritten G4MPI to use C bindings (MPI 3+)
   - Fixes [GitHub PR #81](https://github.com/Geant4/geant4/pull/81/)
