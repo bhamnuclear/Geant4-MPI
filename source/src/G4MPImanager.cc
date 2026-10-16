@@ -53,9 +53,11 @@ namespace
 {
 
 // wrappers for thread functions
-void thread_ExecuteThreadCommand(const G4String* command)
+void* thread_ExecuteThreadCommand(void* arg)
 {
+  const G4String* command = static_cast<const G4String*>(arg);
   G4MPImanager::GetManager()->ExecuteThreadCommand(*command);
+  return nullptr;
 }
 
 // --------------------------------------------------------------------------
@@ -84,11 +86,15 @@ G4MPImanager::G4MPImanager(int nof_extra_workers)
     master_weight_(1.),
     nof_extra_workers_(nof_extra_workers)
 {
-  // MPI::Init();
+  int provided_;
   MPI_Init_thread(nullptr, nullptr, MPI_THREAD_SERIALIZED, &provided_);
   if (provided_ < MPI_THREAD_SERIALIZED) {
-    std::cerr << "Warning: MPI does not provide the requested threading support!" << std::endl;
+    G4Exception("G4MPImanager::G4MPImanager()",
+                "G4MPImanager001",
+                FatalException,
+                "MPI Initialization failed to setup with MPI_THREAD_SERIALIZED or better");
   }
+
   Initialize();
 }
 
@@ -106,10 +112,13 @@ G4MPImanager::G4MPImanager(int argc, char** argv, int nof_extra_workers)
     master_weight_(1.),
     nof_extra_workers_(nof_extra_workers)
 {
-  int provided;
+  int provided_;
   MPI_Init_thread(nullptr, nullptr, MPI_THREAD_SERIALIZED, &provided_);
   if (provided_ < MPI_THREAD_SERIALIZED) {
-    std::cerr << "Warning: MPI does not provide the requested threading support!" << std::endl;
+    G4Exception("G4MPImanager::G4MPImanager()",
+                "G4MPImanager001",
+                FatalException,
+                "MPI Initialization failed to setup with MPI_THREAD_SERIALIZED or better");
   }
 
   Initialize();
@@ -181,14 +190,14 @@ void G4MPImanager::Initialize()
   g4mpi_ = this;
 
   // get rank information
-  MPI_Comm_size(MPI_COMM_WORLD, &world_size_);//world_size_ = MPI::COMM_WORLD.Get_size();
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size_);
   if (world_size_ - nof_extra_workers_ <= 0) {
     G4Exception("G4MPImanager::SetExtraWorker()", "MPI001", JustWarning,
                 "Cannot reserve extra ranks: the MPI size is not sufficient.");
     nof_extra_workers_ = 0;
   }
   size_ = world_size_ - nof_extra_workers_;
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank_); //rank_ = MPI::COMM_WORLD.Get_rank();
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank_);
   is_master_ = (rank_ == kRANK_MASTER);
   is_slave_ = (rank_ != kRANK_MASTER);
   is_extra_worker_ = false;
@@ -271,11 +280,16 @@ void G4MPImanager::ParseArguments(int argc, char** argv)
 
   G4int optind = -1;
 
-  static struct option long_options[] = {{"help", no_argument, NULL, 'h'}, {"verbose", no_argument, NULL, 'v'}, {"init", required_argument, NULL, 'i'}, {"ofile", optional_argument, NULL, 'o'}, {NULL, 0, NULL, 0}};
-
   for (int i = 1; i < argc; i++)
   {
     G4String arg = argv[i];
+    G4String sub;
+    G4String endsub = sub;
+    if (arg.length() > 5)
+    {
+      sub = arg.substr(0,5);
+      endsub = arg.substr(arg.length()-4);
+    }
 
     if (arg == "help")
     {
@@ -295,14 +309,10 @@ void G4MPImanager::ParseArguments(int argc, char** argv)
       qfcout_ = true;
       if (optarg) ofprefix = optarg;
     }
-    else if (arg[0] == 'm')
+    else if (sub=="macro" or endsub==".mac")
     {
-      G4String sub = arg.substr(0,5);
-      if (sub=="macro")
-      {
-        optind = i;
-        qbatchmode_ = true;
-      }
+      optind = i;
+      qbatchmode_ = true;
     }
     //default:
       //G4cerr << "*** invalid options specified." << G4endl;
@@ -528,7 +538,7 @@ void G4MPImanager::ExecuteBeamOnThread(const G4String& command)
   else {  // ok
     static G4String cmdstr;
     cmdstr = command;
-    G4int rc = pthread_create(&thread_id_, 0, (Func_t)thread_ExecuteThreadCommand, (void*)&cmdstr);
+    G4int rc = pthread_create(&thread_id_, 0, thread_ExecuteThreadCommand, (void*)&cmdstr);
     if (rc != 0)
       G4Exception("G4MPImanager::ExecuteBeamOnThread()", "MPI003", FatalException,
                   "Failed to create a beamOn thread.");

@@ -98,6 +98,8 @@ class G4VUserMPIrunMerger
     // Input data to send (read-only)
     struct const_registered_data
     {
+        const_registered_data(/*const*/ void* d, /*const*/ MPI_Datatype t, /*const*/ int c)
+          : p_data(d), dt(t), count(c) {}
         const_registered_data(const const_registered_data&) = default;
         const_registered_data& operator=(const const_registered_data&) = default;
         // const_registered_data(const_registered_data&&) = default;
@@ -111,6 +113,8 @@ class G4VUserMPIrunMerger
     // Output data
     struct registered_data
     {
+        registered_data(void* d, /*const*/ MPI_Datatype t, /*const*/ int c)
+          : p_data(d), dt(t), count(c) {}
         registered_data(const registered_data&) = default;
         registered_data& operator=(const registered_data&) = default;
         void* p_data;
