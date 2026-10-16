@@ -11,7 +11,7 @@
 _type=generic-qt6-MPI
 #_type=generic-MPI
 pkgver=11.4.3
-#pkgver=11.3.0
+#pkgver=11.3.1
 #pkgver=11.2.1
 
 if [ $pkgver = 11.4.3 ]; then
@@ -32,7 +32,7 @@ if [ $pkgver = 11.4.3 ]; then
   module load GCC/13.3.0
   module load Xerces-C++/3.2.5-GCCcore-13.3.0
   module load motif/2.3.8-GCCcore-13.3.0
-elif [ $pkgver = 11.2.1 ] || [ $PKGVER = 11.3.0 ]; then
+elif [ $pkgver = 11.2.1 ] || [ $pkgver = 11.3.1 ]; then
   module purge
   module load bluebear
   module load bear-apps/2022b
@@ -51,8 +51,6 @@ elif [ $pkgver = 11.2.1 ] || [ $PKGVER = 11.3.0 ]; then
 fi
 
 #make sure you are running the code from the directory you submitted from
-_type=generic-MPI
-pkgver=11.2.1
 export _G4_INSTALL_PWD=/rds/projects/w/wheldonc-ambe-sims/Geant4/install/${_type}/Geant4-v${pkgver}/
 export CFLAGS="-march=x86-64-v4  -Os -pipe -fno-plt -fexceptions -Wp,-D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security -fstack-clash-protection -fcf-protection"
 export CXXFLAGS="$CFLAGS -Wp,-D_GLIBCXX_ASSERTIONS"
@@ -69,9 +67,13 @@ echo "Please compile with"
 echo "cmake -DCMAKE_BUILD_TYPE=Release -DGeant4_DIR=${_G4_INSTALL_PWD}/lib64 $PWD/.."
 echo "make"
 
+rm -Rf /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/build/${_type}/${pkgver}-slurm
+rm -Rf /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/${_type}/${pkgver}-slurm
+mkdir -p /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/build/${_type}/${pkgver}-slurm
+mkdir -p /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/${_type}/${pkgver}-slurm
 
-cd /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/build/generic-MPI/${pkgver}-slurm
-cmake -DCMAKE_BUILD_TYPE=Release -DGeant4_DIR=/rds/projects/w/wheldonc-ambe-sims/Geant4/install/generic-MPI/Geant4-v${pkgver}/lib64 -DCMAKE_INSTALL_PREFIX=/rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/generic-MPI/${pkgver}-slurm /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/source
+cd /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/build/${_type}/${pkgver}-slurm
+cmake -DCMAKE_BUILD_TYPE=Release -DGeant4_DIR=/rds/projects/w/wheldonc-ambe-sims/Geant4/install/${_type}/Geant4-v${pkgver}/lib64 -DCMAKE_INSTALL_PREFIX=/rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/${_type}/${pkgver}-slurm /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/source
 make -j10
 make install
-ln -s /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/generic-MPI/${pkgver}-slurm/lib64 /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/generic-MPI/${pkgver}-slurm/lib
+ln -s /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/${_type}/${pkgver}-slurm/lib64 /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/${_type}/${pkgver}-slurm/lib
