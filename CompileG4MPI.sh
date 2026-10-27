@@ -63,10 +63,6 @@ source /rds/projects/w/wheldonc-ambe-sims/Geant4/ROOT/install/root-v6.30.02/bin/
 #export Geant4 modules
 source ${_G4_INSTALL_PWD}/bin/geant4.sh
 
-echo "Please compile with"
-echo "cmake -DCMAKE_BUILD_TYPE=Release -DGeant4_DIR=${_G4_INSTALL_PWD}/lib64 $PWD/.."
-echo "make"
-
 rm -Rf /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/build/${_type}/${pkgver}-slurm
 rm -Rf /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/${_type}/${pkgver}-slurm
 mkdir -p /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/build/${_type}/${pkgver}-slurm

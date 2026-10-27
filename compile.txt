@@ -1,0 +1,12 @@
+cmake -DCMAKE_BUILD_TYPE=Release -DGeant4_DIR=/rds/projects/w/wheldonc-ambe-sims/Geant4/install/emerald-MPI/Geant4-v11.2.1/lib64 -DCMAKE_INSTALL_PREFIX=/rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/emerald-MPI/11.2.1 /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/source
+
+cmake -DCMAKE_BUILD_TYPE=Release -DGeant4_DIR=/rds/projects/w/wheldonc-ambe-sims/Geant4/install/icelake-MPI/Geant4-v11.2.1/lib64 -DCMAKE_INSTALL_PREFIX=/rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/icelake-MPI/11.2.1 /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/source
+
+cmake -DCMAKE_BUILD_TYPE=Release -DGeant4_DIR=/rds/projects/w/wheldonc-ambe-sims/Geant4/install/generic-MPI/Geant4-v11.2.1/lib64 -DCMAKE_INSTALL_PREFIX=/rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/generic-MPI/11.2.1 /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/source
+
+
+cmake -DCMAKE_BUILD_TYPE=Release -DGeant4_DIR=/rds/projects/w/wheldonc-ambe-sims/Geant4/install/generic-MPI/Geant4-v11.3.0/lib64 -DCMAKE_INSTALL_PREFIX=/rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/generic-MPI/11.3.0 /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/source
+
+
+make
+make install
