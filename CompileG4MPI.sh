@@ -72,4 +72,8 @@ cd /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/build/${_type}/${pkg
 cmake -DCMAKE_BUILD_TYPE=Release -DGeant4_DIR=/rds/projects/w/wheldonc-ambe-sims/Geant4/install/${_type}/Geant4-v${pkgver}/lib64 -DCMAKE_INSTALL_PREFIX=/rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/${_type}/${pkgver}-slurm /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/source
 make -j10
 make install
-ln -s /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/${_type}/${pkgver}-slurm/lib64 /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/${_type}/${pkgver}-slurm/lib
+if [ $pkgver = 11.4.3 ]; then
+  ln -s /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/${_type}/${pkgver}-slurm/lib /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/${_type}/${pkgver}-slurm/lib64
+elif [ $pkgver = 11.2.1 ] || [ $pkgver = 11.3.1 ]; then
+  ln -s /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/${_type}/${pkgver}-slurm/lib64 /rds/projects/w/wheldonc-ambe-sims/Geant4/MPI/Geant4-MPI/install/${_type}/${pkgver}-slurm/lib
+fi
